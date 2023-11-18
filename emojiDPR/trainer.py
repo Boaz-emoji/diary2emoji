@@ -2,12 +2,12 @@ import wandb
 import torch
 import pickle
 
-import lightning as pl
+import pytorch_lightning as pl
 from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping
 from pytorch_lightning.loggers import WandbLogger
 from transformers import BertTokenizerFast
 from sklearn.model_selection import train_test_split
-from emojiDPR.emojiDPR import EmojiDPR
+from emojiDPR import EmojiDPR
 from data import TrainingDataset, data_pipeline
 
 
@@ -32,37 +32,52 @@ def train(config):
     with open('./vector_set.pickle', 'rb') as f:
         emoji_embeddings = pickle.load(f)
     
-    dataloader = data_pipeline(config.data_path, tokenizer, emoji_embeddings, config)
-    
+
+    train_dataloader = data_pipeline(config.train_data_path, tokenizer, emoji_embeddings, config)
+    valid_dataloader = None
+    if config.valid_data_path is not None:
+        valid_dataloader = data_pipeline(config.valid_data_path, tokenizer, emoji_embeddings, config)
+
+
     wandb_logger = WandbLogger(project=config.wandb_project, name=f"EmojiDPR-batch_size{config.batch_size}")
     wandb_logger.experiment.config["batch_size"] = config.batch_size
     print("-"*10 + "Wandb Setting Complete!" + "-"*10)
     
-    checkpoint_callback = ModelCheckpoint(monitor='val_loss',
+    checkpoint_callback = ModelCheckpoint(monitor='valid_loss',
                                           dirpath='./checkpoint',
-                                          filename= f"batch_size{config.batch_size}"+'-{val_loss:.2f}',
+                                          filename= f"batch_size{config.batch_size}"+'-{valid_loss:.2f}',
                                           save_top_k=1,
                                           save_last=False,
                                           verbose=True,
                                           mode="min")
     
-    # early_stopping = EarlyStopping(
-    #     monitor='val_loss', 
-    #     mode='min',
-    #     patience=2,
-    # )
+
+    early_stopping = EarlyStopping(
+        monitor='valid_loss', 
+        mode='min',
+        patience=2,
+    )
     
-    trainer = pl.Trainer(devices=devices,
+    if config.valid_data_path is None:
+        trainer = pl.Trainer(devices=devices,
                          accelerator=accelerator,
                          enable_progress_bar=True,
                          callbacks=[checkpoint_callback],
                          max_epochs=config.max_epochs,
                          num_sanity_val_steps=2,
                          logger=wandb_logger)
+    else:
+        trainer = pl.Trainer(devices=devices,
+                             accelerator=accelerator,
+                             enable_progress_bar=True,
+                             callbacks=[checkpoint_callback, early_stopping],
+                             max_epochs=config.max_epochs,
+                             num_sanity_val_steps=2,
+                             logger=wandb_logger)
     
     print("-"*10 + "Train Start!" + "-"*10)
     
-    trainer.fit(model, dataloader)
+    trainer.fit(model, train_dataloaders=train_dataloader, val_dataloaders=valid_dataloader)
     print("-"*10 + "Train Finished!" + "-"*10)
     
     wandb.finish()

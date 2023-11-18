@@ -5,7 +5,8 @@ import pandas as pd
 
 class TrainingDataset(Dataset):
     def __init__(self, text, emoji_index, emoji_embeddings) -> None:
-        self.input_ids, _, self.attention_mask = text
+        self.input_ids = text.input_ids
+        self.attention_mask = text.attention_mask
         self.emoji_index = torch.LongTensor(emoji_index)
         self.emoji_embeddings = emoji_embeddings
 
@@ -48,9 +49,9 @@ def data_pipeline(file, tokenizer, emoji_embeddings, config):
     text_data = list(df["emoji_names"].values)
     emoji_data = list(df["idx"].values)
 
-    tokenizer_output = tokenizer(text_data, padding=True, max_length=config.max_length)
+    tokenizer_output = tokenizer(text_data, padding=True, max_length=config.max_length, return_tensors = "pt")
 
-    dataset = TrainingDataset(tokenizer_output["input_ids"], emoji_data, emoji_embeddings)
+    dataset = TrainingDataset(tokenizer_output, emoji_data, emoji_embeddings)
     dataloader = DataLoader(dataset, batch_size=config.batch_size, shuffle=True, num_workers=4)
 
     return dataloader
